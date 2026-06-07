@@ -7,7 +7,8 @@
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box }
     html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif }
-    #app { position: fixed; inset: 0; background: #ffffff }
+    #app { position: fixed; inset: 0; background: #dcdac0 }
+    #app canvas { filter: saturate(1.0) contrast(1.0) brightness(0.9) }
     #drop-hint {
         position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
         color: #888; font-size: 1.1rem; pointer-events: none; text-align: center; padding: 2rem;
@@ -53,17 +54,19 @@
     const hint = document.getElementById("drop-hint")
     const nameEl = document.getElementById("name")
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.05
+    // neutral tone mapping so material colors stay true (no ACES bleaching)
+    renderer.toneMapping = THREE.NeutralToneMapping
+    renderer.toneMappingExposure = 1.0
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     app.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
-    // white background / skybox
-    scene.background = new THREE.Color(0xffffff)
+    // transparent canvas — page background (#app) shows through, so the
+    // vibrance CSS filter only boosts the model, not the backdrop
+    scene.background = null
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 10000)
     camera.position.set(3, 2, 5)
@@ -71,12 +74,13 @@
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
 
-    // image-based lighting for soft, even reflections
+    // image-based lighting dominates (soft + even), kept gentle so nothing blows out
     const pmrem = new THREE.PMREMGenerator(renderer)
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environmentIntensity = 0.7
 
-    // three-point-ish studio lighting on a bright sky
-    const key = new THREE.DirectionalLight(0xffffff, 2.6)
+    // a single soft key just for gentle form + a contact shadow
+    const key = new THREE.DirectionalLight(0xfff6e0, 1.5)
     key.position.set(6, 12, 8)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
@@ -84,16 +88,8 @@
     scene.add(key)
     scene.add(key.target)
 
-    const fill = new THREE.DirectionalLight(0xffffff, 0.9)
-    fill.position.set(-8, 4, -2)
-    scene.add(fill)
-
-    const rim = new THREE.DirectionalLight(0xffffff, 1.1)
-    rim.position.set(-4, 6, -10)
-    scene.add(rim)
-
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xcfd4dc, 0.7))
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25))
+    // warm sky / cool-tan ground bounce for the even pastel look
+    scene.add(new THREE.HemisphereLight(0xfffaf0, 0xcfceb0, 0.55))
 
     // soft contact shadow on an invisible ground plane
     const ground = new THREE.Mesh(
