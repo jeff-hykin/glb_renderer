@@ -7,7 +7,7 @@
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box }
     html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif }
-    #app { position: fixed; inset: 0; background: #1a1a1f }
+    #app { position: fixed; inset: 0; background: #ffffff }
     #drop-hint {
         position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
         color: #888; font-size: 1.1rem; pointer-events: none; text-align: center; padding: 2rem;
@@ -56,11 +56,14 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1
+    renderer.toneMappingExposure = 1.05
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
     app.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x1a1a1f)
+    // white background / skybox
+    scene.background = new THREE.Color(0xffffff)
 
     const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 10000)
     camera.position.set(3, 2, 5)
@@ -68,13 +71,38 @@
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
 
+    // image-based lighting for soft, even reflections
     const pmrem = new THREE.PMREMGenerator(renderer)
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
 
-    const key = new THREE.DirectionalLight(0xffffff, 2)
-    key.position.set(5, 10, 7)
+    // three-point-ish studio lighting on a bright sky
+    const key = new THREE.DirectionalLight(0xffffff, 2.6)
+    key.position.set(6, 12, 8)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
+    key.shadow.bias = -0.0005
     scene.add(key)
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 0.6))
+    scene.add(key.target)
+
+    const fill = new THREE.DirectionalLight(0xffffff, 0.9)
+    fill.position.set(-8, 4, -2)
+    scene.add(fill)
+
+    const rim = new THREE.DirectionalLight(0xffffff, 1.1)
+    rim.position.set(-4, 6, -10)
+    scene.add(rim)
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xcfd4dc, 0.7))
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25))
+
+    // soft contact shadow on an invisible ground plane
+    const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.ShadowMaterial({ opacity: 0.22 }),
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.receiveShadow = true
+    scene.add(ground)
 
     const loader = new GLTFLoader()
     let current = null
@@ -104,7 +132,34 @@
         camera.near = dist / 100
         camera.far = dist * 100
         camera.updateProjectionMatrix()
+
+        // park the shadow ground at the model's base, sized generously
+        ground.position.set(center.x, box.min.y, center.z)
+        ground.scale.set(radius * 8, radius * 8, 1)
+
+        // fit the key light's shadow frustum to the model
+        const s = key.shadow
+        s.camera.near = dist / 100
+        s.camera.far = dist * 4
+        s.camera.left = -radius * 1.5
+        s.camera.right = radius * 1.5
+        s.camera.top = radius * 1.5
+        s.camera.bottom = -radius * 1.5
+        key.position.set(center.x + radius * 1.5, center.y + radius * 3, center.z + radius * 2)
+        key.target.position.copy(center)
+        key.target.updateMatrixWorld()
+        s.camera.updateProjectionMatrix()
+
         controls.update()
+    }
+
+    function enableShadows(obj) {
+        obj.traverse((o) => {
+            if (o.isMesh) {
+                o.castShadow = true
+                o.receiveShadow = true
+            }
+        })
     }
 
     function applyWireframe(on) {
@@ -124,6 +179,7 @@
             clear()
             current = gltf.scene
             scene.add(current)
+            enableShadows(current)
             frameObject(current)
             applyWireframe(document.getElementById("wireframe").checked)
             nameEl.textContent = label || ""
@@ -142,6 +198,7 @@
             clear()
             current = gltf.scene
             scene.add(current)
+            enableShadows(current)
             frameObject(current)
             applyWireframe(document.getElementById("wireframe").checked)
             nameEl.textContent = file.name
